@@ -230,49 +230,13 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
-def _deduplicate_lines(sorted_lines, tolerance=1.5):
-    if not sorted_lines:
-        return []
-    result = []
-    group = [sorted_lines[0]]
-    for y in sorted_lines[1:]:
-        if y - group[-1] <= tolerance:
-            group.append(y)
-        else:
-            result.append(sum(group) / len(group))
-            group = [y]
-    result.append(sum(group) / len(group))
-    return result
-
-def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
-    min_line_width = page_width * min_width_ratio
-    h_lines = []
-    for drawing in page.get_drawings():
-        for item in drawing.get("items", []):
-            if item[0] == 'l':
-                p1, p2 = item[1], item[2]
-                if abs(p1.y - p2.y) <= 2.0 and abs(p2.x - p1.x) >= min_line_width:
-                    h_lines.append((p1.y + p2.y) / 2)
-            elif item[0] == 're':
-                rect = item[1]
-                # 넓은 사각형의 상단(y0)·하단(y1)을 모두 수집
-                # (테이블 헤더·행 배경색이 얇은 선이 아닌 사각형으로 그려지는 경우 포함)
-                if rect.width >= min_line_width:
-                    h_lines.append(rect.y0)
-                    h_lines.append(rect.y1)
-    return _deduplicate_lines(sorted(h_lines))
-
 def _find_table_regions(page):
     """
-    페이지에서 'Table N' 텍스트 위치를 기준으로 테이블 영역 (top_y, bottom_y) 목록 반환.
-    - 각 테이블 제목 아래 첫 번째 수평선 = 테이블 상단
-    - 다음 테이블 제목 또는 페이지 끝 이전 마지막 수평선 = 테이블 하단
+    page.find_tables()와 'Table N' 제목 위치를 조합해 테이블 영역 반환.
+    - 제목(y1) 아래 10pt 이내에서 시작하는 find_tables() bbox를 매칭
+    - (top_y, bottom_y) 목록 반환 (PDF 좌표 기준, 72pt)
     """
-    page_width = page.rect.width
-    page_height = page.rect.height
-
-    # 1. 'Table N' 제목의 y 하단 좌표 수집
-    # get_text("dict")로 줄 단위 좌표를 얻어 모든 줄을 검사
+    # 1. 'Table N' 제목 줄의 y1(하단) 수집
     title_bottoms = []
     for block in page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]:
         if block.get("type") != 0:
@@ -280,26 +244,28 @@ def _find_table_regions(page):
         for line in block.get("lines", []):
             line_text = "".join(span["text"] for span in line.get("spans", []))
             if re.match(r'Table\s*\d+', line_text.strip(), re.IGNORECASE):
-                title_bottoms.append(line["bbox"][3])  # 해당 줄의 y1
+                title_bottoms.append(line["bbox"][3])
     title_bottoms.sort()
 
     if not title_bottoms:
         return []
 
-    # 2. 페이지 수평선 전체 추출
-    all_h_lines = _extract_horizontal_lines(page, page_width)
-    if len(all_h_lines) < 2:
-        print(f"      - 진단: Table 제목 발견({len(title_bottoms)}개) but 수평선 부족({len(all_h_lines)}개)")
+    # 2. find_tables()로 테이블 bbox 탐색
+    try:
+        found = page.find_tables()
+    except Exception:
         return []
 
-    # 3. 각 제목 아래 범위의 수평선으로 테이블 영역 계산
+    if not found.tables:
+        return []
+
+    # 3. 각 제목 바로 아래(10pt 이내)에서 시작하는 테이블 bbox 매칭
     regions = []
-    boundaries = title_bottoms + [page_height]
-    for i, title_y in enumerate(title_bottoms):
-        next_boundary = boundaries[i + 1]
-        table_lines = [y for y in all_h_lines if title_y <= y < next_boundary]
-        if len(table_lines) >= 2:
-            regions.append((table_lines[0], table_lines[-1]))
+    for title_y in title_bottoms:
+        for table in found.tables:
+            if 0 <= table.bbox[1] - title_y <= 10:
+                regions.append((table.bbox[1], table.bbox[3]))
+                break
 
     return regions
 

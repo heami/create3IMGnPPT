@@ -263,18 +263,50 @@ def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
 def _group_lines_into_tables(h_lines, gap_threshold=30.0):
     if len(h_lines) < 2:
         return []
-    tables = []
+
+    # 1단계: gap_threshold 기준 기본 그룹화
+    raw_groups = []
     current_group = [h_lines[0]]
     for y in h_lines[1:]:
         if y - current_group[-1] > gap_threshold:
-            if len(current_group) >= 2:
-                tables.append((current_group[0], current_group[-1]))
+            raw_groups.append(list(current_group))
             current_group = [y]
         else:
             current_group.append(y)
-    if len(current_group) >= 2:
-        tables.append((current_group[0], current_group[-1]))
-    return tables
+    raw_groups.append(list(current_group))
+
+    # 2단계: 헤더 클러스터(2선 근접)와 고아 선(orphan) 병합
+    # - 헤더 클러스터: 선 2개이고 간격 ≤ 25pt → 다음 그룹과 합쳐 테이블 전체로
+    # - 고아 선(단독 1개): 이전 테이블의 바닥선으로 흡수
+    merged = []
+    pending_top = None
+
+    for group in raw_groups:
+        if pending_top is not None:
+            # 이전 그룹이 헤더 클러스터 → 현재 그룹을 바닥으로 합침
+            merged.append((pending_top, group[-1]))
+            pending_top = None
+        elif len(group) == 1:
+            # 고아 선 → 직전 테이블의 바닥을 이 선으로 확장
+            if merged:
+                top, _ = merged[-1]
+                merged[-1] = (top, group[0])
+        else:
+            span = group[-1] - group[0]
+            if len(group) == 2 and span <= 25:
+                # 헤더 클러스터: 다음 그룹을 기다림
+                pending_top = group[0]
+            else:
+                merged.append((group[0], group[-1]))
+
+    if pending_top is not None:
+        merged.append((pending_top, h_lines[-1]))
+
+    # 선이 모두 고아여서 merged가 비었으면 전체 범위를 하나의 테이블로
+    if not merged:
+        merged.append((h_lines[0], h_lines[-1]))
+
+    return merged
 
 def create_PDF_table_images(directory):
     """

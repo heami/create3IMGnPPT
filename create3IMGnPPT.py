@@ -260,53 +260,44 @@ def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
                     h_lines.append(rect.y1)
     return _deduplicate_lines(sorted(h_lines))
 
-def _group_lines_into_tables(h_lines, gap_threshold=30.0):
-    if len(h_lines) < 2:
+def _find_table_regions(page):
+    """
+    페이지에서 'Table N' 텍스트 위치를 기준으로 테이블 영역 (top_y, bottom_y) 목록 반환.
+    - 각 테이블 제목 아래 첫 번째 수평선 = 테이블 상단
+    - 다음 테이블 제목 또는 페이지 끝 이전 마지막 수평선 = 테이블 하단
+    """
+    page_width = page.rect.width
+    page_height = page.rect.height
+
+    # 1. 'Table N' 제목의 y 하단 좌표 수집
+    title_bottoms = []
+    for block in page.get_text("blocks"):
+        x0, y0, x1, y1, text, block_no, block_type = block
+        if block_type != 0:
+            continue
+        first_line = text.strip().split('\n')[0]
+        if re.match(r'Table\s*\d+', first_line, re.IGNORECASE):
+            title_bottoms.append(y1)
+    title_bottoms.sort()
+
+    if not title_bottoms:
         return []
 
-    # 1단계: gap_threshold 기준 기본 그룹화
-    raw_groups = []
-    current_group = [h_lines[0]]
-    for y in h_lines[1:]:
-        if y - current_group[-1] > gap_threshold:
-            raw_groups.append(list(current_group))
-            current_group = [y]
-        else:
-            current_group.append(y)
-    raw_groups.append(list(current_group))
+    # 2. 페이지 수평선 전체 추출
+    all_h_lines = _extract_horizontal_lines(page, page_width)
+    if len(all_h_lines) < 2:
+        return []
 
-    # 2단계: 헤더 클러스터(2선 근접)와 고아 선(orphan) 병합
-    # - 헤더 클러스터: 선 2개이고 간격 ≤ 25pt → 다음 그룹과 합쳐 테이블 전체로
-    # - 고아 선(단독 1개): 이전 테이블의 바닥선으로 흡수
-    merged = []
-    pending_top = None
+    # 3. 각 제목 아래 범위의 수평선으로 테이블 영역 계산
+    regions = []
+    boundaries = title_bottoms + [page_height]
+    for i, title_y in enumerate(title_bottoms):
+        next_boundary = boundaries[i + 1]
+        table_lines = [y for y in all_h_lines if title_y <= y < next_boundary]
+        if len(table_lines) >= 2:
+            regions.append((table_lines[0], table_lines[-1]))
 
-    for group in raw_groups:
-        if pending_top is not None:
-            # 이전 그룹이 헤더 클러스터 → 현재 그룹을 바닥으로 합침
-            merged.append((pending_top, group[-1]))
-            pending_top = None
-        elif len(group) == 1:
-            # 고아 선 → 직전 테이블의 바닥을 이 선으로 확장
-            if merged:
-                top, _ = merged[-1]
-                merged[-1] = (top, group[0])
-        else:
-            span = group[-1] - group[0]
-            if len(group) == 2 and span <= 25:
-                # 헤더 클러스터: 다음 그룹을 기다림
-                pending_top = group[0]
-            else:
-                merged.append((group[0], group[-1]))
-
-    if pending_top is not None:
-        merged.append((pending_top, h_lines[-1]))
-
-    # 선이 모두 고아여서 merged가 비었으면 전체 범위를 하나의 테이블로
-    if not merged:
-        merged.append((h_lines[0], h_lines[-1]))
-
-    return merged
+    return regions
 
 def create_PDF_table_images(directory):
     """
@@ -336,9 +327,7 @@ def create_PDF_table_images(directory):
             table_idx = 0
 
             for page in doc:
-                page_width = page.rect.width
-                h_lines = _extract_horizontal_lines(page, page_width)
-                table_groups = _group_lines_into_tables(h_lines)
+                table_groups = _find_table_regions(page)
 
                 if not table_groups:
                     continue
@@ -347,7 +336,7 @@ def create_PDF_table_images(directory):
 
                 for top_y, bottom_y in table_groups:
                     table_idx += 1
-                    clip_rect = fitz.Rect(0, top_y, page_width, bottom_y)
+                    clip_rect = fitz.Rect(0, top_y, page.rect.width, bottom_y)
                     pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 

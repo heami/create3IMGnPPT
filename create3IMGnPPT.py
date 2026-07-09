@@ -251,12 +251,13 @@ def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
         for item in drawing.get("items", []):
             if item[0] == 'l':
                 p1, p2 = item[1], item[2]
-                if abs(p1.y - p2.y) <= 1.0 and abs(p2.x - p1.x) >= min_line_width:
-                    h_lines.append(p1.y)
+                if abs(p1.y - p2.y) <= 2.0 and abs(p2.x - p1.x) >= min_line_width:
+                    h_lines.append((p1.y + p2.y) / 2)
             elif item[0] == 're':
                 rect = item[1]
-                # 얇은 수평 사각형(선처럼 생긴 것)만 추출: 높이 ≤ 5pt
-                if rect.width >= min_line_width and rect.height <= 5:
+                # 넓은 사각형의 상단(y0)·하단(y1)을 모두 수집
+                # (테이블 헤더·행 배경색이 얇은 선이 아닌 사각형으로 그려지는 경우 포함)
+                if rect.width >= min_line_width:
                     h_lines.append(rect.y0)
                     h_lines.append(rect.y1)
     return _deduplicate_lines(sorted(h_lines))

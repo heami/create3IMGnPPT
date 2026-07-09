@@ -255,7 +255,8 @@ def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
                     h_lines.append(p1.y)
             elif item[0] == 're':
                 rect = item[1]
-                if rect.width >= min_line_width:
+                # 얇은 수평 사각형(선처럼 생긴 것)만 추출: 높이 ≤ 5pt
+                if rect.width >= min_line_width and rect.height <= 5:
                     h_lines.append(rect.y0)
                     h_lines.append(rect.y1)
     return _deduplicate_lines(sorted(h_lines))
@@ -270,14 +271,15 @@ def _find_table_regions(page):
     page_height = page.rect.height
 
     # 1. 'Table N' 제목의 y 하단 좌표 수집
+    # get_text("dict")로 줄 단위 좌표를 얻어 모든 줄을 검사
     title_bottoms = []
-    for block in page.get_text("blocks"):
-        x0, y0, x1, y1, text, block_no, block_type = block
-        if block_type != 0:
+    for block in page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]:
+        if block.get("type") != 0:
             continue
-        first_line = text.strip().split('\n')[0]
-        if re.match(r'Table\s*\d+', first_line, re.IGNORECASE):
-            title_bottoms.append(y1)
+        for line in block.get("lines", []):
+            line_text = "".join(span["text"] for span in line.get("spans", []))
+            if re.match(r'Table\s*\d+', line_text.strip(), re.IGNORECASE):
+                title_bottoms.append(line["bbox"][3])  # 해당 줄의 y1
     title_bottoms.sort()
 
     if not title_bottoms:
@@ -286,6 +288,7 @@ def _find_table_regions(page):
     # 2. 페이지 수평선 전체 추출
     all_h_lines = _extract_horizontal_lines(page, page_width)
     if len(all_h_lines) < 2:
+        print(f"      - 진단: Table 제목 발견({len(title_bottoms)}개) but 수평선 부족({len(all_h_lines)}개)")
         return []
 
     # 3. 각 제목 아래 범위의 수평선으로 테이블 영역 계산

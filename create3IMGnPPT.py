@@ -16,6 +16,7 @@ import pythoncom
 import win32com.client
 from win32com.client.gencache import EnsureDispatch
 from win32com.client import constants
+import fitz  # PyMuPDF
 
 # 스크립트 파일이 있는 디렉토리 경로를 미리 저장합니다.
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -229,6 +230,122 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
+def _deduplicate_lines(sorted_lines, tolerance=1.5):
+    if not sorted_lines:
+        return []
+    result = []
+    group = [sorted_lines[0]]
+    for y in sorted_lines[1:]:
+        if y - group[-1] <= tolerance:
+            group.append(y)
+        else:
+            result.append(sum(group) / len(group))
+            group = [y]
+    result.append(sum(group) / len(group))
+    return result
+
+def _extract_horizontal_lines(page, page_width, min_width_ratio=0.3):
+    min_line_width = page_width * min_width_ratio
+    h_lines = []
+    for drawing in page.get_drawings():
+        for item in drawing.get("items", []):
+            if item[0] == 'l':
+                p1, p2 = item[1], item[2]
+                if abs(p1.y - p2.y) <= 1.0 and abs(p2.x - p1.x) >= min_line_width:
+                    h_lines.append(p1.y)
+            elif item[0] == 're':
+                rect = item[1]
+                if rect.width >= min_line_width:
+                    h_lines.append(rect.y0)
+                    h_lines.append(rect.y1)
+    return _deduplicate_lines(sorted(h_lines))
+
+def _group_lines_into_tables(h_lines, gap_threshold=30.0):
+    if len(h_lines) < 2:
+        return []
+    tables = []
+    current_group = [h_lines[0]]
+    for y in h_lines[1:]:
+        if y - current_group[-1] > gap_threshold:
+            if len(current_group) >= 2:
+                tables.append((current_group[0], current_group[-1]))
+            current_group = [y]
+        else:
+            current_group.append(y)
+    if len(current_group) >= 2:
+        tables.append((current_group[0], current_group[-1]))
+    return tables
+
+def create_PDF_table_images(directory):
+    """
+    주어진 디렉토리에서 *-???.pdf 파일을 찾아 테이블 영역을 감지하고
+    -l, -m 2가지 스펙의 이미지로 변환합니다.
+    """
+    print('--- PDF 테이블 이미지 생성 작업을 시작합니다. ---')
+
+    pdf_file_list = sorted(glob.glob(os.path.join(directory, '*-???.pdf')))
+    if not pdf_file_list:
+        print("경고: *-???.pdf 패턴에 해당하는 파일을 찾을 수 없습니다.")
+        return False
+
+    images_dir = os.path.join(directory, 'Images')
+    if not os.path.isdir(images_dir):
+        os.mkdir(images_dir)
+
+    zoom = 300 / 72
+
+    for pdf_path in pdf_file_list:
+        base_name, _ = os.path.splitext(os.path.basename(pdf_path))
+        prefix = re.sub(r'-\d+$', '', base_name)
+        print(f"    • {os.path.basename(pdf_path)}")
+        doc = None
+        try:
+            doc = fitz.open(pdf_path)
+            table_idx = 0
+
+            for page in doc:
+                page_width = page.rect.width
+                h_lines = _extract_horizontal_lines(page, page_width)
+                table_groups = _group_lines_into_tables(h_lines)
+
+                if not table_groups:
+                    continue
+
+                mat = fitz.Matrix(zoom, zoom)
+
+                for top_y, bottom_y in table_groups:
+                    table_idx += 1
+                    clip_rect = fitz.Rect(0, top_y, page_width, bottom_y)
+                    pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+                    # 흰색 여백 제거
+                    bbox = ImageOps.invert(img).getbbox()
+                    img_cropped = img.crop(bbox) if bbox else img
+
+                    # 상하좌우 10px 흰색 패딩 추가
+                    w, h = img_cropped.size
+                    final_image = Image.new("RGB", (w + 20, h + 20), (255, 255, 255))
+                    final_image.paste(img_cropped, (10, 10))
+
+                    # 파일명 생성 및 저장
+                    img_base = f"{prefix}-i{table_idx:03d}"
+                    l_img_path = os.path.join(images_dir, f"{img_base}-l.jpg")
+                    final_image.save(l_img_path, dpi=(300, 300), quality=100)
+                    cfg.createmim(final_image, f"{img_base}-m.jpg", images_dir)
+
+            if table_idx == 0:
+                print(f"      - 경고: {os.path.basename(pdf_path)}에서 테이블을 찾지 못했습니다.")
+
+        except Exception as e:
+            print(f"      - 오류: {os.path.basename(pdf_path)} 처리 중 에러 발생 - {e}")
+        finally:
+            if doc:
+                doc.close()
+
+    print('--- PDF 이미지 생성 완료. ---\n')
+    return True
+
 def dispatch_image_creation(directory):
     """엑셀 파일 존재 여부에 따라 적절한 이미지 생성 함수를 호출하는 분기점"""
     # print(f"'{os.path.basename(directory)}' 폴더에서 이미지 생성 작업을 시작합니다.")
@@ -239,7 +356,7 @@ def dispatch_image_creation(directory):
     if excel_files:
         # print("-> Excel 파일이 감지되었습니다. Excel 이미지 변환을 시작합니다.")
         return create_excel_images(directory)
-    elif pdf_pattern:
+    elif glob.glob(pdf_pattern):
         # print("-> Excel 파일이 감지되었습니다. Excel 이미지 변환을 시작합니다.")
         return create_PDF_table_images(directory)
     else:

@@ -1,6 +1,6 @@
 from pptx import Presentation
 from pptx.util import Inches
-from PIL import Image, ImageOps, ImageFilter, ImageGrab
+from PIL import Image, ImageOps, ImageFilter, ImageGrab, ImageCms
 import requests
 from bs4 import BeautifulSoup
 import glob
@@ -335,6 +335,7 @@ def create_PDF_table_images(directory):
         os.mkdir(images_dir)
 
     zoom = 900 / 72  # 포토샵에서 900 DPI로 열었을 때와 동일한 픽셀 수 생성
+    srgb_profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
 
     for pdf_path in pdf_file_list:
         base_name, _ = os.path.splitext(os.path.basename(pdf_path))
@@ -377,14 +378,14 @@ def create_PDF_table_images(directory):
                     tif_path = os.path.join(images_dir, f"{img_base}.tif")
                     l_img_path = os.path.join(images_dir, f"{img_base}-l.jpg")
 
-                    # 고화질 TIF: 900 DPI, LZW 무손실 압축
-                    final_image.save(tif_path, dpi=(900, 900), compression='tiff_lzw')
+                    # 고화질 TIF: 900 DPI, LZW 무손실 압축, sRGB 프로파일 내장
+                    final_image.save(tif_path, dpi=(900, 900), compression='tiff_lzw', icc_profile=srgb_profile)
 
-                    # 웹-라지 JPG: 고화질(900 DPI)에서 145 DPI로 해상도 변경
+                    # 웹-라지 JPG: 고화질(900 DPI)에서 145 DPI로 해상도 변경, sRGB 프로파일 내장
                     factor = min(1.0, 150.0 / 900)
                     l_size = (int(final_image.width * factor), int(final_image.height * factor))
                     l_img = final_image.resize(l_size, Image.Resampling.LANCZOS)
-                    l_img.save(l_img_path, dpi=(145, 145), quality=100)
+                    l_img.save(l_img_path, dpi=(145, 145), quality=100, icc_profile=srgb_profile)
 
                     # 웹-미디움 JPG: 기존 코드 그대로 (너비 270px 고정)
                     cfg.createmim(final_image, f"{img_base}-m.jpg", images_dir)

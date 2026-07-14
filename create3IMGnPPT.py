@@ -313,7 +313,7 @@ def _find_table_regions(page):
                 end_y = _find_text_boundary_below(page, table.bbox[3])
                 # x0, top_y, x1, end_y — 테이블 x 범위로 클립을 좁혀 좌우 여백 제거
                 # top_y를 3pt 위로 확장해 상단 테두리 선 전체를 포함
-                regions.append((table.bbox[0], max(0, table.bbox[1] - 3), table.bbox[2], end_y))
+                regions.append((table.bbox[0], max(0, table.bbox[1] - 2), table.bbox[2], end_y))
                 break
 
     return regions

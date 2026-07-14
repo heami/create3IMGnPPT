@@ -335,7 +335,14 @@ def create_PDF_table_images(directory):
         os.mkdir(images_dir)
 
     zoom = 900 / 72  # 포토샵에서 900 DPI로 열었을 때와 동일한 픽셀 수 생성
-    srgb_profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+
+    # Windows 시스템 sRGB 프로파일 사용 (없으면 Pillow 내장 프로파일로 대체)
+    _win_srgb = r'C:\Windows\System32\spool\drivers\color\sRGB Color Space Profile.icm'
+    if os.path.exists(_win_srgb):
+        with open(_win_srgb, 'rb') as _f:
+            srgb_profile = _f.read()
+    else:
+        srgb_profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
 
     for pdf_path in pdf_file_list:
         base_name, _ = os.path.splitext(os.path.basename(pdf_path))

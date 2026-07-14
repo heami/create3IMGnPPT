@@ -287,7 +287,7 @@ def _find_table_regions(page):
             continue
         for line in block.get("lines", []):
             line_text = "".join(span["text"] for span in line.get("spans", []))
-            if re.match(r'Table\s*\d+', line_text.strip(), re.IGNORECASE):
+            if re.match(r'Table\s*\d+\.', line_text.strip(), re.IGNORECASE):
                 title_bottoms.append(line["bbox"][3])
     title_bottoms.sort()
 
@@ -303,13 +303,13 @@ def _find_table_regions(page):
     if not found.tables:
         return []
 
-    # 3. 각 제목 바로 아래(10pt 이내)에서 시작하는 테이블 매칭
+    # 3. 각 제목 바로 아래(15pt 이내)에서 시작하는 테이블 매칭
     #    하단 경계: find_tables bbox 아래 첫 번째 텍스트 블록 y0
     #    (getbbox 트림이 실제 내용 끝을 잡으므로 body text는 자동 제외)
     regions = []
     for title_y in title_bottoms:
         for table in found.tables:
-            if 0 <= table.bbox[1] - title_y <= 10:
+            if 0 <= table.bbox[1] - title_y <= 15:
                 end_y = _find_text_boundary_below(page, table.bbox[3])
                 regions.append((table.bbox[1], end_y))
                 break

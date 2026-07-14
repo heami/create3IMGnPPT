@@ -333,7 +333,7 @@ def create_PDF_table_images(directory):
     if not os.path.isdir(images_dir):
         os.mkdir(images_dir)
 
-    zoom = 300 / 72
+    zoom = 900 / 72  # 포토샵에서 900 DPI로 열었을 때와 동일한 픽셀 수 생성
 
     for pdf_path in pdf_file_list:
         base_name, _ = os.path.splitext(os.path.basename(pdf_path))
@@ -360,7 +360,7 @@ def create_PDF_table_images(directory):
 
                     # 마지막 색상 있는 행(테이블 하단 선) 이후 풋노트 제거
                     last_colored = _find_last_colored_row(img_ext)
-                    img = img_ext.crop((0, 0, img_ext.width, last_colored + 5))
+                    img = img_ext.crop((0, 0, img_ext.width, last_colored + 15))
 
                     # 좌우 흰색 여백 제거
                     bbox = ImageOps.invert(img).getbbox()

@@ -230,10 +230,25 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
+def _find_text_boundary_below(page, below_y, gap=5):
+    """below_y 아래 gap pt 이상 떨어진 첫 번째 텍스트 블록의 y0를 반환.
+    없으면 페이지 높이를 반환."""
+    candidates = []
+    for block in page.get_text("dict")["blocks"]:
+        if block.get("type") != 0:
+            continue
+        by0 = block["bbox"][1]
+        if by0 > below_y + gap:
+            candidates.append(by0)
+    return min(candidates) if candidates else page.rect.height
+
+
 def _find_table_regions(page):
     """
     page.find_tables()와 'Table N' 제목 위치를 조합해 테이블 영역 반환.
-    - 제목(y1) 아래 10pt 이내에서 시작하는 find_tables() bbox를 매칭
+    - 테이블 상단: find_tables() bbox[1] (제목 아래 10pt 이내)
+    - 테이블 하단: find_tables() bbox 아래 첫 번째 텍스트 블록 위치까지 렌더링
+      → getbbox()로 실제 내용 끝을 트림하므로 body text는 자동 제외됨
     - (top_y, bottom_y) 목록 반환 (PDF 좌표 기준, 72pt)
     """
     # 1. 'Table N' 제목 줄의 y1(하단) 수집
@@ -259,12 +274,15 @@ def _find_table_regions(page):
     if not found.tables:
         return []
 
-    # 3. 각 제목 바로 아래(10pt 이내)에서 시작하는 테이블 bbox 매칭
+    # 3. 각 제목 바로 아래(10pt 이내)에서 시작하는 테이블 매칭
+    #    하단 경계: find_tables bbox 아래 첫 번째 텍스트 블록 y0
+    #    (getbbox 트림이 실제 내용 끝을 잡으므로 body text는 자동 제외)
     regions = []
     for title_y in title_bottoms:
         for table in found.tables:
             if 0 <= table.bbox[1] - title_y <= 10:
-                regions.append((table.bbox[1], table.bbox[3]))
+                end_y = _find_text_boundary_below(page, table.bbox[3])
+                regions.append((table.bbox[1], end_y))
                 break
 
     return regions

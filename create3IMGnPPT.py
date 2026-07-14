@@ -366,15 +366,26 @@ def create_PDF_table_images(directory):
                     bbox = ImageOps.invert(img).getbbox()
                     img_cropped = img.crop(bbox) if bbox else img
 
-                    # 상하좌우 10px 흰색 패딩 추가
+                    # 상하좌우 5px 흰색 패딩 추가
                     w, h = img_cropped.size
-                    final_image = Image.new("RGB", (w + 20, h + 20), (255, 255, 255))
-                    final_image.paste(img_cropped, (10, 10))
+                    final_image = Image.new("RGB", (w + 10, h + 10), (255, 255, 255))
+                    final_image.paste(img_cropped, (5, 5))
 
-                    # 파일명 생성 및 저장
+                    # 파일명 생성
                     img_base = f"{prefix}-i{table_idx:03d}"
+                    tif_path = os.path.join(images_dir, f"{img_base}.tif")
                     l_img_path = os.path.join(images_dir, f"{img_base}-l.jpg")
-                    final_image.save(l_img_path, dpi=(300, 300), quality=100)
+
+                    # 고화질 TIF: 900 DPI
+                    final_image.save(tif_path, dpi=(900, 900))
+
+                    # 웹-라지 JPG: 고화질(900 DPI)에서 145 DPI로 해상도 변경
+                    factor = min(1.0, 150.0 / 900)
+                    l_size = (int(final_image.width * factor), int(final_image.height * factor))
+                    l_img = final_image.resize(l_size, Image.Resampling.LANCZOS)
+                    l_img.save(l_img_path, dpi=(145, 145), quality=100)
+
+                    # 웹-미디움 JPG: 기존 코드 그대로 (너비 270px 고정)
                     cfg.createmim(final_image, f"{img_base}-m.jpg", images_dir)
 
             if table_idx == 0:

@@ -346,7 +346,6 @@ def create_PDF_table_images(directory):
 
     for pdf_path in pdf_file_list:
         base_name, _ = os.path.splitext(os.path.basename(pdf_path))
-        prefix = re.sub(r'-\d+$', '', base_name)
         print(f"    • {os.path.basename(pdf_path)}")
         doc = None
         try:
@@ -381,7 +380,7 @@ def create_PDF_table_images(directory):
                     final_image.paste(img_cropped, (5, 5))
 
                     # 파일명 생성
-                    img_base = f"{prefix}-i{table_idx:03d}"
+                    img_base = f"{base_name}-i{table_idx:03d}"
                     tif_path = os.path.join(images_dir, f"{img_base}.tif")
                     l_img_path = os.path.join(images_dir, f"{img_base}-l.jpg")
 

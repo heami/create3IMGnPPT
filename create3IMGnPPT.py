@@ -230,6 +230,29 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
+def _find_last_colored_row(img, colored_ratio=0.2):
+    """
+    렌더링된 이미지를 아래에서 위로 스캔해 마지막 '색상 있는' 행의 y 픽셀을 반환.
+    - 색상 있는 행: 행 폭의 colored_ratio 이상이 비-흰색 중간밝기 픽셀
+      → 테이블 헤더/행 배경색, 테두리 선 검출
+    - 흰 배경 위 검은 텍스트(풋노트)는 비-흰색 픽셀이 적어 제외됨
+    """
+    width, height = img.size
+    threshold = max(1, int(width * colored_ratio))
+    pixels = list(img.getdata())
+
+    for y in range(height - 1, -1, -1):
+        row = pixels[y * width:(y + 1) * width]
+        colored = sum(
+            1 for r, g, b in row
+            if (r < 230 or g < 230 or b < 230) and (r + g + b) > 150
+        )
+        if colored >= threshold:
+            return y
+
+    return height - 1
+
+
 def _find_text_boundary_below(page, below_y, gap=5):
     """below_y 아래 gap pt 이상 떨어진 첫 번째 텍스트 블록의 y0를 반환.
     없으면 페이지 높이를 반환."""
@@ -326,9 +349,13 @@ def create_PDF_table_images(directory):
                     table_idx += 1
                     clip_rect = fitz.Rect(0, top_y, page.rect.width, bottom_y)
                     pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
-                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    img_ext = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-                    # 흰색 여백 제거
+                    # 마지막 색상 있는 행(테이블 하단 선) 이후 풋노트 제거
+                    last_colored = _find_last_colored_row(img_ext)
+                    img = img_ext.crop((0, 0, img_ext.width, last_colored + 5))
+
+                    # 좌우 흰색 여백 제거
                     bbox = ImageOps.invert(img).getbbox()
                     img_cropped = img.crop(bbox) if bbox else img
 

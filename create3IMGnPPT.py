@@ -230,24 +230,30 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
-def _find_last_colored_row(img, colored_ratio=0.2):
+def _find_last_colored_row(img, ratio=0.8, bright_low=80, bright_high=210, hue_min=30):
     """
-    렌더링된 이미지를 아래에서 위로 스캔해 마지막 '색상 있는' 행의 y 픽셀을 반환.
-    - 색상 있는 행: 행 폭의 colored_ratio 이상이 비-흰색 중간밝기 픽셀
-      → 테이블 헤더/행 배경색, 테두리 선 검출
-    - 흰 배경 위 검은 텍스트(풋노트)는 비-흰색 픽셀이 적어 제외됨
+    이미지를 아래→위로 스캔해 마지막 '테이블 선 색상' 행의 y 픽셀을 반환.
+
+    테이블 선은 '검은색 다음으로 진한 유색'이므로 아래 두 조건을 동시 충족:
+      1) 밝기(R+G+B)/3 이 bright_low~bright_high 사이
+         - 검은 텍스트(≈0) 및 흰 배경(≈255), 연한 행 배경(≈230)은 모두 제외
+      2) 색조 max(R,G,B)-min(R,G,B) > hue_min  (무채색 회색·검정 제외)
+
+    위 조건을 row 폭의 ratio(80%) 이상이 만족하는 행 = 테이블 선(border line).
+    풋노트(흰 배경+검은 텍스트)는 두 조건 모두 통과하는 픽셀이 거의 없어 제외됨.
     """
     width, height = img.size
-    threshold = max(1, int(width * colored_ratio))
+    threshold = max(1, int(width * ratio))
     pixels = list(img.getdata())
 
     for y in range(height - 1, -1, -1):
         row = pixels[y * width:(y + 1) * width]
-        colored = sum(
+        count = sum(
             1 for r, g, b in row
-            if (r < 230 or g < 230 or b < 230) and (r + g + b) > 150
+            if bright_low < (r + g + b) / 3 < bright_high
+            and max(r, g, b) - min(r, g, b) > hue_min
         )
-        if colored >= threshold:
+        if count >= threshold:
             return y
 
     return height - 1

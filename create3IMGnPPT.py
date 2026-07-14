@@ -303,17 +303,16 @@ def _find_table_regions(page):
     if not found.tables:
         return []
 
-    # 3. 각 제목 바로 아래(15pt 이내)에서 시작하는 테이블 매칭
-    #    하단 경계: find_tables bbox 아래 첫 번째 텍스트 블록 y0
-    #    (getbbox 트림이 실제 내용 끝을 잡으므로 body text는 자동 제외)
+    # 3. 각 제목 바로 아래(25pt 이내)에서 시작하는 테이블 매칭
+    #    tuple: (x0, top_y, x1, end_y, table_bbox3)
+    #    table_bbox3 = find_tables bbox[3] → 정확한 테이블 하단 (크롭 기준)
     regions = []
     for title_y in title_bottoms:
         for table in found.tables:
-            if 0 <= table.bbox[1] - title_y <= 15:
+            if 0 <= table.bbox[1] - title_y <= 25:
                 end_y = _find_text_boundary_below(page, table.bbox[3])
-                # x0, top_y, x1, end_y — 테이블 x 범위로 클립을 좁혀 좌우 여백 제거
-                # top_y를 3pt 위로 확장해 상단 테두리 선 전체를 포함
-                regions.append((table.bbox[0], max(0, table.bbox[1] - 2), table.bbox[2], end_y))
+                top_y = max(0, table.bbox[1] - 2)
+                regions.append((table.bbox[0], top_y, table.bbox[2], end_y, table.bbox[3]))
                 break
 
     return regions
@@ -360,15 +359,25 @@ def create_PDF_table_images(directory):
 
                 mat = fitz.Matrix(zoom, zoom)
 
-                for x0, top_y, x1, bottom_y in table_groups:
+                for x0, top_y, x1, bottom_y, table_bbox3 in table_groups:
                     table_idx += 1
                     clip_rect = fitz.Rect(x0, top_y, x1, bottom_y)
                     pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
                     img_ext = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-                    # 마지막 색상 있는 행(테이블 하단 선) 이후 풋노트 제거
+                    # find_tables bbox[3] 기준 픽셀 위치 = 정확한 테이블 하단
+                    known_bottom_px = int((table_bbox3 - top_y) * zoom)
+
+                    # 하단 경계선 탐지: known_bottom 아래에 유색 선이 있으면 확장
                     last_colored = _find_last_colored_row(img_ext)
-                    img = img_ext.crop((0, 0, img_ext.width, last_colored + 15))
+                    if last_colored < img_ext.height - 1 and last_colored > known_bottom_px:
+                        # known_bottom 아래에서 경계선 발견 → 포함
+                        crop_bottom = last_colored + 15
+                    else:
+                        # fallback: find_tables bbox[3] 기준으로 크롭 (상단 경계선 오탐 방지)
+                        crop_bottom = known_bottom_px + 15
+
+                    img = img_ext.crop((0, 0, img_ext.width, crop_bottom))
 
                     # 좌우 흰색 여백 제거
                     bbox = ImageOps.invert(img).getbbox()

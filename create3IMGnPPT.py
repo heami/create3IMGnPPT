@@ -230,7 +230,7 @@ def create_excel_images(directory):
         # 백그라운드 스레드에서 COM 초기화 해제
         pythoncom.CoUninitialize()
 
-def _find_last_colored_row(img, ratio=0.8, bright_low=80, bright_high=210, hue_min=30):
+def _find_last_colored_row(img, ratio=0.4, bright_low=80, bright_high=210, hue_min=30):
     """
     이미지를 아래→위로 스캔해 마지막 '테이블 선 색상' 행의 y 픽셀을 반환.
 
@@ -311,7 +311,8 @@ def _find_table_regions(page):
         for table in found.tables:
             if 0 <= table.bbox[1] - title_y <= 15:
                 end_y = _find_text_boundary_below(page, table.bbox[3])
-                regions.append((table.bbox[1], end_y))
+                # x0, top_y, x1, end_y — 테이블 x 범위로 클립을 좁혀 좌우 여백 제거
+                regions.append((table.bbox[0], table.bbox[1], table.bbox[2], end_y))
                 break
 
     return regions
@@ -351,9 +352,9 @@ def create_PDF_table_images(directory):
 
                 mat = fitz.Matrix(zoom, zoom)
 
-                for top_y, bottom_y in table_groups:
+                for x0, top_y, x1, bottom_y in table_groups:
                     table_idx += 1
-                    clip_rect = fitz.Rect(0, top_y, page.rect.width, bottom_y)
+                    clip_rect = fitz.Rect(x0, top_y, x1, bottom_y)
                     pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
                     img_ext = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 

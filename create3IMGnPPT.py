@@ -376,8 +376,8 @@ def create_PDF_table_images(directory):
                     tif_path = os.path.join(images_dir, f"{img_base}.tif")
                     l_img_path = os.path.join(images_dir, f"{img_base}-l.jpg")
 
-                    # 고화질 TIF: 900 DPI
-                    final_image.save(tif_path, dpi=(900, 900))
+                    # 고화질 TIF: 900 DPI, LZW 무손실 압축
+                    final_image.save(tif_path, dpi=(900, 900), compression='tiff_lzw')
 
                     # 웹-라지 JPG: 고화질(900 DPI)에서 145 DPI로 해상도 변경
                     factor = min(1.0, 150.0 / 900)

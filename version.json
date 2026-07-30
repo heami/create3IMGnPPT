@@ -1,5 +1,5 @@
 {
-  "latest_version": "1.1.6",
-  "download_url": "https://github.com/heami/create3IMGnPPT/releases/download/v1.1.6/Image.PPT.Maker-v1.1.6.exe",
-  "update_notes": "- PDF에서 고화질 이미지 추출 기능 추가"
+  "latest_version": "1.1.7",
+  "download_url": "https://github.com/heami/create3IMGnPPT/releases/download/v1.1.7/Image.PPT.Maker-v1.1.7.exe",
+  "update_notes": "- PDF에서 고화질 테이블 이미지 추출 시 헤더 색 없는 경우 추가"
 }
